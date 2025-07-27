@@ -40,6 +40,38 @@ def load_earnings_csv():
     out_path = os.path.join("./data/earnings", f"{TICKER}.csv")
     earnings.to_csv(out_path, index=False)
 
+def load_options_chain_csv(earnings, stock_data):
+    all_filtered = []
+    for earn_date in earnings['reportedDate']:
+        as_of = (pd.to_datetime(earn_date) - pd.tseries.offsets.BDay(1)).date().strftime('%Y-%m-%d')
+        atm_strike = get_atm_strike(stock_data, as_of)
+        params = {
+            "function": "HISTORICAL_OPTIONS",
+            "symbol": TICKER,
+            "date": as_of,
+            "apikey": ALPHA_VANTAGE_API_KEY,
+        }
+        r = requests.get(BASE_URL, params=params)
+        r.raise_for_status()
+        payload = r.json()
+        df = pd.DataFrame(payload["data"])
+
+        df["strike"]      = pd.to_numeric(df["strike"], errors="coerce")
+        df["expiration"]  = pd.to_datetime(df["expiration"]).dt.date
+        df["as_of"]        = pd.to_datetime(df["date"]).dt.date
+
+        earliest_exp = df["expiration"].min()
+        df_atm_next = df[
+            (df["strike"]     == atm_strike) &
+            (df["expiration"] == earliest_exp)
+        ]
+        all_filtered.append(df_atm_next)
+
+    result = pd.concat(all_filtered, ignore_index=True)
+    out_path = os.path.join(OUT_DIR, f"{TICKER}.csv")
+    result.to_csv(out_path, index=False)
+    print(f"Saved {len(result)} rows to {out_path}")
+
 earnings_csv = os.path.join(".", "data", "earnings", f"{TICKER}.csv")
 earnings = pd.read_csv(earnings_csv,parse_dates=["reportedDate"])
 
@@ -48,34 +80,3 @@ stock_data = stock_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]
 stock_data.dropna(inplace=True)
 stock_data.index = pd.to_datetime(stock_data.index)
 stock_data.index = stock_data.index.normalize()
-
-all_filtered = []
-for earn_date in earnings['reportedDate']:
-    as_of = (pd.to_datetime(earn_date) - pd.tseries.offsets.BDay(1)).date().strftime('%Y-%m-%d')
-    atm_strike = get_atm_strike(stock_data, as_of)
-    params = {
-        "function": "HISTORICAL_OPTIONS",
-        "symbol": TICKER,
-        "date": as_of,
-        "apikey": ALPHA_VANTAGE_API_KEY,
-    }
-    r = requests.get(BASE_URL, params=params)
-    r.raise_for_status()
-    payload = r.json()
-    df = pd.DataFrame(payload["data"])
-
-    df["strike"]      = pd.to_numeric(df["strike"], errors="coerce")
-    df["expiration"]  = pd.to_datetime(df["expiration"]).dt.date
-    df["as_of"]        = pd.to_datetime(df["date"]).dt.date
-
-    earliest_exp = df["expiration"].min()
-    df_atm_next = df[
-        (df["strike"]     == atm_strike) &
-        (df["expiration"] == earliest_exp)
-    ]
-    all_filtered.append(df_atm_next)
-
-result = pd.concat(all_filtered, ignore_index=True)
-out_path = os.path.join(OUT_DIR, f"{TICKER}.csv")
-result.to_csv(out_path, index=False)
-print(f"✅ saved {len(result)} rows to {out_path}")
