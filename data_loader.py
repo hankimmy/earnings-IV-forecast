@@ -1,5 +1,5 @@
 import os
-import json
+import sys
 import requests
 import yfinance as yf
 import pandas as pd
@@ -7,7 +7,7 @@ from pandas.tseries.offsets import BDay
 
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 BASE_URL = "https://www.alphavantage.co/query"
-TICKER = "ETSY"
+TICKER = sys.argv[1].upper()
 OUT_DIR = "./data/option_chains"
 
 def get_safe_as_of(stock_data, earn_date, max_lookback=5):
@@ -89,6 +89,7 @@ def load_options_chain_csv(earnings, stock_data):
     result.to_csv(out_path, index=False)
     print(f"Saved {len(result)} rows to {out_path}")
 
+load_earnings_csv()
 earnings_csv = os.path.join(".", "data", "earnings", f"{TICKER}.csv")
 earnings = pd.read_csv(earnings_csv,parse_dates=["reportedDate"])
 
