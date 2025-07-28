@@ -1,9 +1,11 @@
 import numpy as np
 import pandas as pd
+import os
 from arch import arch_model
 import yfinance as yf
 
 TICKER = "AAPL"
+MULTIPLIER = 100
 
 def compute_garch_vol(ticker, as_of, window=500):
     df = yf.download(ticker, end=as_of, period=f"{window+5}d", progress=False, auto_adjust=False)
@@ -11,7 +13,6 @@ def compute_garch_vol(ticker, as_of, window=500):
     df["ret"] = np.log(df["Adj Close"] / df["Adj Close"].shift(1))
     rets = df["ret"].replace([np.inf, -np.inf], np.nan).dropna()
     rets_pct = rets.iloc[-window:] * 100
-    
 
     am = arch_model(rets_pct, vol="Garch", p=1, q=1, mean="Constant")
     res = am.fit(disp="off")
@@ -22,6 +23,14 @@ def compute_garch_vol(ticker, as_of, window=500):
     sigma1     = sigma1_pct / 100
 
     return sigma1 * np.sqrt(252)
+
+def get_close_price(ticker, date):
+    df = yf.download(ticker, start=date, end=date + pd.Timedelta(days=1), progress=False, auto_adjust=False)
+    return df["Adj Close"].iloc[0].item()
+
+def get_open_price(ticker, date):
+    df = yf.download(ticker, start=date, end=date + pd.Timedelta(days=1), progress=False, auto_adjust=False)
+    return df["Open"].iloc[0].item()
 
 earn = pd.read_csv(
     f"data/earnings/{TICKER}.csv",
@@ -36,58 +45,64 @@ chain = pd.read_csv(
     f"data/option_chains/{TICKER}.csv",
     parse_dates=["date", "as_of"]
 )
-chain = chain.rename(columns={"implied_volatility": "atm_iv"})
-tmp = earn.merge(chain[["as_of", "atm_iv"]], on="as_of", how="left")
+iv_map = (
+    chain[["as_of", "implied_volatility"]]
+    .dropna()
+    .drop_duplicates("as_of")
+    .rename(columns={"implied_volatility": "atm_iv"})
+)
+earn = earn.merge(iv_map, on="as_of", how="left")
 
-features = tmp[[
-    "as_of", "fiscalDateEnding", "estimatedEPS", "garch_vol", "atm_iv"
-]].sort_values("as_of").reset_index(drop=True)
+labels = []
+for idx, row in earn.iterrows():
+    trade_date = row["reportedDate"]
+    exp_date = trade_date + pd.Timedelta(days=1)
+    day_chain = chain[chain["expiration"] == exp_date.strftime('%Y-%m-%d')]
+    if day_chain.empty:
+        labels.append({
+            "strike": np.nan,
+            "call_ask": np.nan,
+            "put_ask": np.nan,
+            "straddle_cost": np.nan,
+            "underlying": np.nan,
+            "underlying_t1": np.nan,
+            "abs_move": np.nan,
+            "return": np.nan,
+            "realized_vol": np.nan
+        })
+        continue
 
+    underlying_price = get_open_price(TICKER, trade_date)
+    call = day_chain[day_chain["type"] == "call"].iloc[0]
+    put = day_chain[day_chain["type"] == "put"].iloc[0]
+    atm_strike = call["strike"]
+
+    call_ask = call["ask"]
+    put_ask = put["ask"]
+    straddle_cost = call_ask + put_ask * MULTIPLIER
+
+    underlying_t1 = get_close_price(TICKER, exp_date)
+    abs_move = abs(underlying_t1 - atm_strike) * MULTIPLIER
+    pnl = abs_move - straddle_cost
+    ret = pnl / straddle_cost
+    log_return = np.log(underlying_t1 / underlying_price)
+    realized_vol = abs(log_return) * np.sqrt(252)
+
+    labels.append({
+        "strike": atm_strike,
+        "call_ask": call_ask,
+        "put_ask": put_ask,
+        "straddle_cost": straddle_cost,
+        "underlying": underlying_price,
+        "underlying_t1": underlying_t1,
+        "abs_move": abs_move,
+        "return": ret,
+        "realized_vol": realized_vol
+    })
+
+
+label_df = pd.DataFrame(labels)
+features = pd.concat([earn.reset_index(drop=True), label_df], axis=1)
+out_path = os.path.join("./data/features/", f"{TICKER}.csv")
+features.to_csv(out_path, index=False)
 print(features)
-
-def compute_next_day_return(ticker, as_of):
-    df = yf.download(
-        ticker,
-        start=as_of.strftime("%Y-%m-%d"),
-        end=(as_of + pd.Timedelta(days=2)).strftime("%Y-%m-%d"),
-        progress=False,
-        auto_adjust=False
-    )
-    closes = df["Adj Close"].dropna()
-    if len(closes) < 2:
-        return np.nan
-    P0, P1 = closes.iloc[0], closes.iloc[1]
-    return (P1 - P0) / P0
-
-features['ret_t1'] = features['as_of'].apply(
-    lambda dt: compute_next_day_return(TICKER, dt)
-)
-
-atm_chain = (
-    chain[['as_of', 'mark', 'strike', 'expiration']]
-    .drop_duplicates(subset=['as_of'])
-)
-
-features = features.merge(
-    atm_chain.rename(columns={'mark':'straddle_cost', 'strike':'K'}),
-    on='as_of', how='left'
-)
-
-def compute_straddle_payoff(row):
-    df = yf.download(
-        TICKER,
-        start=row.expiration.strftime("%Y-%m-%d"),
-        end=(row.expiration + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
-        progress=False,
-        auto_adjust=False
-    )
-    closes = df['Adj Close'].dropna()
-    if closes.empty:
-        return np.nan
-    PT = closes.iloc[-1]
-    return abs(PT - row.K)
-
-features['straddle_payoff'] = features.apply(
-    lambda row: compute_straddle_payoff(row), axis=1
-)
-features['straddle_pnl'] = features['straddle_payoff'] - features['straddle_cost']
