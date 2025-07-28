@@ -7,7 +7,7 @@ from pandas.tseries.offsets import BDay
 
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 BASE_URL = "https://www.alphavantage.co/query"
-TICKER = "AAPL"
+TICKER = "ETSY"
 OUT_DIR = "./data/option_chains"
 
 def get_safe_as_of(stock_data, earn_date, max_lookback=5):
