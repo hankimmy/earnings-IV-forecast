@@ -93,7 +93,7 @@ load_earnings_csv()
 earnings_csv = os.path.join(".", "data", "earnings", f"{TICKER}.csv")
 earnings = pd.read_csv(earnings_csv,parse_dates=["reportedDate"])
 
-stock_data = yf.download(TICKER, start='2010-10-01', auto_adjust=False, progress=False)
+stock_data = yf.download(TICKER, start='2008-01-01', auto_adjust=False, progress=False)
 stock_data = stock_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]
 stock_data.dropna(inplace=True)
 stock_data.index = pd.to_datetime(stock_data.index)

@@ -8,6 +8,8 @@ from pandas.tseries.offsets import BDay
 
 TICKER = sys.argv[1].upper() 
 MULTIPLIER = 100
+ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
+BASE_URL = "https://www.alphavantage.co/query"
 
 def compute_garch_vol(ticker, as_of, window=500):
     df = yf.download(ticker, end=as_of, period=f"{window+5}d", progress=False, auto_adjust=False)
@@ -24,6 +26,38 @@ def compute_garch_vol(ticker, as_of, window=500):
     sigma1_pct = np.sqrt(var1_pct) 
     sigma1     = sigma1_pct / 100
 
+    return sigma1 * np.sqrt(252)
+
+def compute_egarch_vol(ticker, as_of, window=500):
+    df = yf.download(
+        ticker,
+        end=as_of,
+        period=f"{window+5}d",
+        progress=False,
+        auto_adjust=False
+    )
+    df.dropna(inplace=True)
+
+    df["ret"] = np.log(df["Adj Close"] / df["Adj Close"].shift(1))
+    rets = df["ret"].replace([np.inf, -np.inf], np.nan).dropna()
+    rets_pct = rets.iloc[-window:] * 100
+
+    am = arch_model(
+        rets_pct,
+        mean="Constant",
+        vol="EGARCH",
+        p=1,
+        o=1,
+        q=1,
+        dist="Normal"
+    )
+    res = am.fit(disp="off", options={"maxiter":2000})
+
+    f = res.forecast(horizon=1, reindex=False)
+    var1_pct = f.variance.values[-1, 0]
+
+    sigma1_pct = np.sqrt(var1_pct)
+    sigma1      = sigma1_pct / 100
     return sigma1 * np.sqrt(252)
 
 def get_close_price(ticker, date, max_lookahead=5):
@@ -52,12 +86,34 @@ earn["as_of"] = earn["reportedDate"] - pd.Timedelta(days=1)
 earn["garch_vol"] = earn["as_of"].apply(
     lambda dt: compute_garch_vol(TICKER, dt)
 )
+earn["e_garch_vol"] = earn["as_of"].apply(
+    lambda dt: compute_egarch_vol(TICKER, dt)
+)
 
 chain = pd.read_csv(
     f"data/option_chains/{TICKER}.csv",
     parse_dates=["date", "as_of"]
 )
 chain["expiration"] = pd.to_datetime(chain["expiration"]).dt.date
+chain["strike_diff_abs"] = chain["strike_diff"].abs()
+
+atm_chain = (
+    chain
+    .sort_values(["as_of","type","strike_diff_abs"])
+    .groupby(["as_of","type"], as_index=False)
+    .first()
+)
+greeks = atm_chain.pivot(
+    index="as_of",
+    columns="type",
+    values=["delta","gamma","vega","theta","rho"]
+)
+greeks.columns = [
+    f"{opt}_{g}" for g,opt in greeks.columns
+]
+greeks = greeks.reset_index()
+earn = earn.merge(greeks, on="as_of", how="left")
+
 iv_map = (
     chain[["as_of", "implied_volatility"]]
     .dropna()
@@ -70,6 +126,7 @@ earn["surprise_norm"] = earn["surprise"] / earn["estimatedEPS"].abs().replace(0,
 earn["garch_vol_lag1"] = earn["garch_vol"].shift(1)
 earn["atm_iv_lag1"] = earn["atm_iv"].shift(1)
 earn["iv_garch_spread_lag1"] = earn["iv_garch_spread"].shift(1)
+earn["atm_iv estimatedEPS"] = earn["atm_iv"] * earn["estimatedEPS"]
 
 for col in ["garch_vol", "atm_iv", "iv_garch_spread"]:
     earn[f"{col}_roll5_mean"] = earn[col].rolling(window=5, min_periods=3).mean()

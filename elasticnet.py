@@ -16,39 +16,50 @@ df = pd.read_csv(f"./data/features/{TICKER}.csv")
 def adjusted_r2_score(r2, n, k):
     return 1 - (1 - r2) * (n - 1) / (n - k - 1)
 
-features = [
-    "garch_vol", "atm_iv", "surprisePercentage", "iv_garch_spread", "breakeven_pct", "estimatedEPS", "estimatedEPS_change", "estimatedEPS_pct_change"
-]
 df["garch_vol breakeven_pct"] = df["garch_vol"] * df["breakeven_pct"]
 df["atm_iv breakeven_pct"] = df["atm_iv"] * df["breakeven_pct"]
 df["breakeven_pct estimatedEPS_pct_change"] = df["breakeven_pct"] * df["estimatedEPS_pct_change"]
 df["atm_iv estimatedEPS"] = df["atm_iv"] * df["estimatedEPS"]
 df["iv_garch_spread estimatedEPS"] = df["iv_garch_spread"] * df["estimatedEPS"]
 df["breakeven_pct estimatedEPS"] = df["breakeven_pct"] * df["estimatedEPS"]
-# features = [
-#     "garch_vol", 
-#     "breakeven_pct", 
-#     "estimatedEPS", 
-#     "garch_vol breakeven_pct",
-#     "atm_iv breakeven_pct",
-#     "breakeven_pct estimatedEPS_pct_change",
-#     "atm_iv estimatedEPS",
-#     "iv_garch_spread estimatedEPS",
-# ]
-# MSE: 0.08365 | R²: 0.079 | Adjusted R²: -0.657  RIDGE MSE: 0.10159 | R²: -0.118 | Adjusted R²: -1.013
+# MSE: 0.08365 | R²: 0.079 | Adjusted R²: -0.657
 features = [
+    #"e_garch_vol"
     "garch_vol", 
-    "iv_garch_spread",
+    #"iv_garch_spread",
     "breakeven_pct", 
     "estimatedEPS", 
-    "atm_iv estimatedEPS",
+    #"atm_iv estimatedEPS",
+    # "call_vega",
+    # "call_rho",
+    #"atm_iv"
+    #"estimatedEPS_pct_change"
 ]
-features = [
-    "garch_vol", 
-    "breakeven_pct", 
-    "atm_iv estimatedEPS",
-    ""
-]
+# df[" "] = df["garch_vol"] * df["breakeven_pct"]
+# df[" "] = df["atm_iv"] * df["breakeven_pct"]
+# df["breakeven_pct estimatedEPS_pct_change"] = df["breakeven_pct"] * df["estimatedEPS_pct_change"]
+# df["atm_iv estimatedEPS"] = df["atm_iv"] * df["estimatedEPS"]
+# df["iv_garch_spread estimatedEPS"] = df["iv_garch_spread"] * df["estimatedEPS"]
+# df["breakeven_pct estimatedEPS"] = df["breakeven_pct"] * df["estimatedEPS"]
+# features = [
+#     "e_garch_vol",
+#     # "garch_vol", 
+#     "breakeven_pct", 
+#     "estimatedEPS", 
+#     # "atm_iv estimatedEPS",
+#     # "iv_garch_spread",
+#     # "breakeven_pct estimatedEPS_pct_change",
+#     # "call_delta",
+#     # "put_delta",
+#     # "call_gamma",
+#     # "put_gamma",
+#     # "call_vega",
+#     # "put_vega",
+#     # "call_theta",
+#     # "put_theta",
+#     "call_rho",
+#     # "put_rho"
+# ]
 
 df = df.dropna(subset=features + ["realized_vol"])
 
@@ -96,46 +107,46 @@ print("\nElasticNet Feature Weights:\n", pd.Series(enet.coef_, index=X_train.col
 # print("\nElasticNet Feature Weights:\n", pd.Series(enet.coef_, index=feature_names).sort_values())
 
 # RidgeCV
-ridge_model = make_pipeline(
-    StandardScaler(),
-    RidgeCV(alphas=np.logspace(-4, 1, 50), cv=tscv)
-)
-ridge_model.fit(X_train, y_train)
-ridge = ridge_model.named_steps["ridgecv"]
-y_pred_ridge = ridge_model.predict(X_test)
+# ridge_model = make_pipeline(
+#     StandardScaler(),
+#     RidgeCV(alphas=np.logspace(-4, 1, 50), cv=tscv)
+# )
+# ridge_model.fit(X_train, y_train)
+# ridge = ridge_model.named_steps["ridgecv"]
+# y_pred_ridge = ridge_model.predict(X_test)
 
 #Poly
 # ridge_model.fit(X_train_poly, y_train)
 # ridge = ridge_model.named_steps["ridgecv"]
 # y_pred_ridge = ridge_model.predict(X_test_poly)
-print("\nRidge Performance on Test Set:")
-r2_ridge = r2_score(y_test, y_pred_ridge)
-adj_r2_ridge = adjusted_r2_score(r2_ridge, len(y_test), X_test.shape[1])
-print(f"MSE: {mean_squared_error(y_test, y_pred_ridge):.5f} | R²: {r2_ridge:.3f} | Adjusted R²: {adj_r2_ridge:.3f}")
-print("\nRidge Feature Weights:\n", pd.Series(ridge.coef_, index=X_train.columns).sort_values())
+# print("\nRidge Performance on Test Set:")
+# r2_ridge = r2_score(y_test, y_pred_ridge)
+# adj_r2_ridge = adjusted_r2_score(r2_ridge, len(y_test), X_test.shape[1])
+# print(f"MSE: {mean_squared_error(y_test, y_pred_ridge):.5f} | R²: {r2_ridge:.3f} | Adjusted R²: {adj_r2_ridge:.3f}")
+# print("\nRidge Feature Weights:\n", pd.Series(ridge.coef_, index=X_train.columns).sort_values())
 # print("\nRidge Feature Weights:\n", pd.Series(ridge.coef_, index=feature_names).sort_values())
 
-joblib.dump((enet_model, features), "./models/elasticnet_model.pkl")
-joblib.dump((ridge_model, features), "./models/ridge_model.pkl")
+joblib.dump((enet_model, features), f"./models/elasticnet_model_{TICKER}.pkl")
+# joblib.dump((ridge_model, features), f"./models/ridge_model_{TICKER}.pkl")
 
 enet_weights = pd.Series(enet.coef_, index=X_train.columns)
-ridge_weights = pd.Series(ridge.coef_, index=X_train.columns)
+# ridge_weights = pd.Series(ridge.coef_, index=X_train.columns)
 # enet_weights = pd.Series(enet.coef_, index=feature_names)
 # ridge_weights = pd.Series(ridge.coef_, index=feature_names)
 
 enet_importance = enet_weights.abs().sort_values(ascending=False)
-ridge_importance = ridge_weights.abs().sort_values(ascending=False)
+# ridge_importance = ridge_weights.abs().sort_values(ascending=False)
 
 print("\nElasticNet Feature Importance Ranking:")
 print(enet_importance)
 
-print("\nRidge Feature Importance Ranking:")
-print(ridge_importance)
+# print("\nRidge Feature Importance Ranking:")
+# print(ridge_importance)
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
 
 enet_importance.plot(kind='barh', ax=axes[0], title="ElasticNet Importances", color='orange')
-ridge_importance.plot(kind='barh', ax=axes[1], title="Ridge Importances", color='skyblue')
+# ridge_importance.plot(kind='barh', ax=axes[1], title="Ridge Importances", color='skyblue')
 
 for ax in axes:
     ax.set_xlabel("Absolute Coefficient")
@@ -155,23 +166,10 @@ print(pd.Series(enet_result.importances_mean[sorted_idx], index=X_test.columns[s
 # print(pd.Series(enet_result.importances_mean[sorted_idx], index=feature_names[sorted_idx]))
 
 
-print("RIDGE permutation importance")
-ridge_result = permutation_importance(ridge_model, X_test, y_test, n_repeats=30, random_state=0)
-sorted_idx = ridge_result.importances_mean.argsort()[::-1]
-print(pd.Series(ridge_result.importances_mean[sorted_idx], index=X_test.columns[sorted_idx]))
+# print("RIDGE permutation importance")
+# ridge_result = permutation_importance(ridge_model, X_test, y_test, n_repeats=30, random_state=0)
+# sorted_idx = ridge_result.importances_mean.argsort()[::-1]
+# print(pd.Series(ridge_result.importances_mean[sorted_idx], index=X_test.columns[sorted_idx]))
 # ridge_result = permutation_importance(ridge_model, X_test_poly, y_test, n_repeats=30, random_state=0)
 # sorted_idx = ridge_result.importances_mean.argsort()[::-1]
 # print(pd.Series(ridge_result.importances_mean[sorted_idx], index=feature_names[sorted_idx]))
-
-# --- Plot ---
-# plt.figure(figsize=(6, 6))
-# plt.scatter(y_test, y_pred_ridge, alpha=0.7, label="Ridge")
-# plt.scatter(y_test, y_pred_enet, alpha=0.7, label="ElasticNet", marker='x')
-# plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-# plt.xlabel("Actual Realized Vol")
-# plt.ylabel("Predicted Realized Vol")
-# plt.title("Out-of-Sample Realized Vol Prediction")
-# plt.legend()
-# plt.grid(True)
-# plt.tight_layout()
-# plt.show()
