@@ -50,20 +50,6 @@ def evaluate_performance(df, label):
     print(f"Win rate:       {win_rate:.2%}")
 
 
-def plot_vol_curves(df, ticker, label):
-    plt.figure(figsize=(12, 6))
-    plt.plot(df["as_of"], df["predicted_vol"], label=f"{label} Predicted Vol", marker="o")
-    plt.plot(df["as_of"], df["realized_vol"], label=f"{label} Realized Vol", marker="s")
-    plt.plot(df["as_of"], df["atm_iv"], label=f"{label} ATM IV", marker="^")
-    plt.title(f"{ticker} Vol Comparison: {label}")
-    plt.xlabel("Date")
-    plt.ylabel("Volatility")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-
 def backtest(ticker, threshold=0.3, base_path="./data", model_dir="./models", save_output=True, plot=True):
     feat_path = f"{base_path}/features/{ticker}.csv"
     model_path = f"{model_dir}/elasticnet_model_{ticker}.pkl"
@@ -81,9 +67,6 @@ def backtest(ticker, threshold=0.3, base_path="./data", model_dir="./models", sa
     evaluate_performance(train_sig, "In-sample")
     evaluate_performance(test_sig, "Out-of-sample")
 
-    if plot:
-        plot_vol_curves(test_sig, ticker, "OOS")
-
     if save_output:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         test_sig.to_csv(out_path, index=False)
@@ -93,7 +76,7 @@ def backtest(ticker, threshold=0.3, base_path="./data", model_dir="./models", sa
 def backtest_all(
     feature_dir="./data/features",
     model_dir="./models",
-    threshold=0.5,
+    threshold=0.6,
 ):
     oos_sigs = []
     for fname in os.listdir(feature_dir):
@@ -118,12 +101,6 @@ def backtest_all(
         return
 
     all_oos = pd.concat(oos_sigs, ignore_index=True)
-    # port = all_oos.pivot_table(
-    #     index="as_of",
-    #     columns="ticker",
-    #     values="pnl_when_signal",
-    #     aggfunc="sum",
-    # ).fillna(0)
     port_pnl = all_oos.pivot_table(
         index="as_of",
         columns="ticker",
@@ -133,26 +110,24 @@ def backtest_all(
     port_pnl["Pnl"] = port_pnl.sum(axis=1)
 
     daily_pnl = port_pnl["Pnl"]
-
-    # performance metrics
     ann_factor = np.sqrt(252)
     sharpe = daily_pnl.mean() / daily_pnl.std() * ann_factor
     total_pnl = daily_pnl.sum()
 
-    # cumulative PnL & drawdown
     cum_pnl = daily_pnl.cumsum()
     running_max = cum_pnl.cummax().clip(lower=0)
     drawdown = cum_pnl - running_max
-    drawdown_pct = drawdown[running_max > 0] / running_max[running_max > 0] * 100
-    max_dd_pct = drawdown_pct.min()
 
-    print("\n=== Portfolio out-of-sample performance ===")
+    print("\nPortfolio out-of-sample performance")
     print(f"  Total days traded: {len(daily_pnl)}")
     print(f"  Total PnL:         ${total_pnl:,.2f}")
     print(f"  Annualized Sharpe: {sharpe:.2f}")
-    print(f"  Max drawdown (%):  {abs(max_dd_pct):.2f}%")
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1,
+        figsize=(10, 8),
+        sharex=True,
+        gridspec_kw={"height_ratios": [3, 1]}
+    )
     ax1.plot(cum_pnl.index, cum_pnl.values, label="Cumulative PnL")
     ax1.set_ylabel("Cum. PnL ($)")
     ax1.legend(loc="upper left")
@@ -164,7 +139,9 @@ def backtest_all(
     ax2.grid(True)
 
     plt.tight_layout()
-    plt.show()
+    fig.savefig("plot.png", dpi=300)
+    plt.close(fig)
+
 
 
 if __name__ == "__main__":
