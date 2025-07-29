@@ -6,10 +6,11 @@ from arch import arch_model
 import yfinance as yf
 from pandas.tseries.offsets import BDay
 
-TICKER = sys.argv[1].upper() 
+TICKER = sys.argv[1].upper()
 MULTIPLIER = 100
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 BASE_URL = "https://www.alphavantage.co/query"
+
 
 def compute_garch_vol(ticker, as_of, window=500):
     df = yf.download(ticker, end=as_of, period=f"{window+5}d", progress=False, auto_adjust=False)
@@ -23,94 +24,63 @@ def compute_garch_vol(ticker, as_of, window=500):
 
     f = res.forecast(horizon=1, reindex=False)
     var1_pct = f.variance.values[-1, 0]
-    sigma1_pct = np.sqrt(var1_pct) 
-    sigma1     = sigma1_pct / 100
+    sigma1_pct = np.sqrt(var1_pct)
+    sigma1 = sigma1_pct / 100
 
     return sigma1 * np.sqrt(252)
 
+
 def compute_egarch_vol(ticker, as_of, window=500):
-    df = yf.download(
-        ticker,
-        end=as_of,
-        period=f"{window+5}d",
-        progress=False,
-        auto_adjust=False
-    )
+    df = yf.download(ticker, end=as_of, period=f"{window+5}d", progress=False, auto_adjust=False)
     df.dropna(inplace=True)
 
     df["ret"] = np.log(df["Adj Close"] / df["Adj Close"].shift(1))
     rets = df["ret"].replace([np.inf, -np.inf], np.nan).dropna()
     rets_pct = rets.iloc[-window:] * 100
 
-    am = arch_model(
-        rets_pct,
-        mean="Constant",
-        vol="EGARCH",
-        p=1,
-        o=1,
-        q=1,
-        dist="Normal"
-    )
-    res = am.fit(disp="off", options={"maxiter":2000})
+    am = arch_model(rets_pct, mean="Constant", vol="EGARCH", p=1, o=1, q=1, dist="Normal")
+    res = am.fit(disp="off", options={"maxiter": 2000})
 
     f = res.forecast(horizon=1, reindex=False)
     var1_pct = f.variance.values[-1, 0]
 
     sigma1_pct = np.sqrt(var1_pct)
-    sigma1      = sigma1_pct / 100
+    sigma1 = sigma1_pct / 100
     return sigma1 * np.sqrt(252)
+
 
 def get_close_price(ticker, date, max_lookahead=5):
     for i in range(max_lookahead):
         target_date = date + BDay(i)
-        df = yf.download(ticker, start=target_date, end=target_date + pd.Timedelta(days=1), progress=False, auto_adjust=False)
+        df = yf.download(
+            ticker, start=target_date, end=target_date + pd.Timedelta(days=1), progress=False, auto_adjust=False
+        )
         if not df.empty:
             return df["Adj Close"].iloc[0].item()
     raise ValueError(f"[ERROR] No price data found for {ticker} within {max_lookahead} BDays after {date}")
+
 
 def get_open_price(ticker, date):
     df = yf.download(ticker, start=date, end=date + pd.Timedelta(days=1), progress=False, auto_adjust=False)
     return df["Open"].iloc[0].item()
 
-earn = pd.read_csv(
-    f"data/earnings/{TICKER}.csv",
-    parse_dates=["fiscalDateEnding", "reportedDate"]
-)
+
+earn = pd.read_csv(f"data/earnings/{TICKER}.csv", parse_dates=["fiscalDateEnding", "reportedDate"])
 earn = earn.sort_values("reportedDate").reset_index(drop=True)
 earn["prev_quarter_EPS"] = earn["reportedEPS"].shift(1)
 earn["estimatedEPS_change"] = earn["estimatedEPS"] - earn["prev_quarter_EPS"]
-earn["estimatedEPS_pct_change"] = (
-    earn["estimatedEPS_change"] / earn["prev_quarter_EPS"].replace(0, np.nan)
-)
+earn["estimatedEPS_pct_change"] = earn["estimatedEPS_change"] / earn["prev_quarter_EPS"].replace(0, np.nan)
 earn["as_of"] = earn["reportedDate"] - pd.Timedelta(days=1)
-earn["garch_vol"] = earn["as_of"].apply(
-    lambda dt: compute_garch_vol(TICKER, dt)
-)
-earn["e_garch_vol"] = earn["as_of"].apply(
-    lambda dt: compute_egarch_vol(TICKER, dt)
-)
+earn["garch_vol"] = earn["as_of"].apply(lambda dt: compute_garch_vol(TICKER, dt))
+earn["e_garch_vol"] = earn["as_of"].apply(lambda dt: compute_egarch_vol(TICKER, dt))
 
-chain = pd.read_csv(
-    f"data/option_chains/{TICKER}.csv",
-    parse_dates=["date", "as_of"]
-)
+chain = pd.read_csv(f"data/option_chains/{TICKER}.csv", parse_dates=["date", "as_of"])
 chain["expiration"] = pd.to_datetime(chain["expiration"]).dt.date
 chain["strike_diff_abs"] = chain["strike_diff"].abs()
 
-atm_chain = (
-    chain
-    .sort_values(["as_of","type","strike_diff_abs"])
-    .groupby(["as_of","type"], as_index=False)
-    .first()
-)
-greeks = atm_chain.pivot(
-    index="as_of",
-    columns="type",
-    values=["delta","gamma","vega","theta","rho"]
-)
-greeks.columns = [
-    f"{opt}_{g}" for g,opt in greeks.columns
-]
+atm_chain = chain.sort_values(["as_of", "type", "strike_diff_abs"]).groupby(["as_of", "type"], as_index=False).first()
+greeks = atm_chain.pivot(index="as_of", columns="type", values=["delta", "gamma", "vega", "theta", "rho"])
+greeks.columns = [f"{opt}_{g}" for g, opt in greeks.columns]
 greeks = greeks.reset_index()
 earn = earn.merge(greeks, on="as_of", how="left")
 
@@ -139,15 +109,28 @@ for idx, row in earn.iterrows():
     trade_date = row["reportedDate"]
     future_exp = chain[chain["expiration"] >= trade_date.date()]
     if future_exp.empty:
-        labels.append({ ... })
+        labels.append({...})
         continue
     exp_date = future_exp["expiration"].min()
     day_chain = future_exp[future_exp["expiration"] == exp_date]
     if day_chain.empty:
-        labels.append({k: np.nan for k in [
-            "strike", "call_ask", "put_ask", "straddle_cost", "underlying",
-            "underlying_t1", "abs_move", "return", "realized_vol", "breakeven_pct"
-        ]})
+        labels.append(
+            {
+                k: np.nan
+                for k in [
+                    "strike",
+                    "call_ask",
+                    "put_ask",
+                    "straddle_cost",
+                    "underlying",
+                    "underlying_t1",
+                    "abs_move",
+                    "return",
+                    "realized_vol",
+                    "breakeven_pct",
+                ]
+            }
+        )
         continue
 
     underlying_price = get_open_price(TICKER, trade_date)
@@ -168,18 +151,20 @@ for idx, row in earn.iterrows():
     log_return = np.log(underlying_t1 / underlying_price)
     realized_vol = abs(log_return) * np.sqrt(252)
 
-    labels.append({
-        "strike": atm_strike,
-        "call_ask": call_ask,
-        "put_ask": put_ask,
-        "straddle_cost": straddle_cost,
-        "underlying": underlying_price,
-        "underlying_t1": underlying_t1,
-        "abs_move": abs_move,
-        "return": ret,
-        "breakeven_pct": breakeven_pct,
-        "realized_vol": realized_vol
-    })
+    labels.append(
+        {
+            "strike": atm_strike,
+            "call_ask": call_ask,
+            "put_ask": put_ask,
+            "straddle_cost": straddle_cost,
+            "underlying": underlying_price,
+            "underlying_t1": underlying_t1,
+            "abs_move": abs_move,
+            "return": ret,
+            "breakeven_pct": breakeven_pct,
+            "realized_vol": realized_vol,
+        }
+    )
 
 
 label_df = pd.DataFrame(labels)

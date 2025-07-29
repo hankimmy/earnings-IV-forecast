@@ -13,8 +13,10 @@ from sklearn.inspection import permutation_importance
 TICKER = sys.argv[1].upper()
 df = pd.read_csv(f"./data/features/{TICKER}.csv")
 
+
 def adjusted_r2_score(r2, n, k):
     return 1 - (1 - r2) * (n - 1) / (n - k - 1)
+
 
 df["garch_vol breakeven_pct"] = df["garch_vol"] * df["breakeven_pct"]
 df["atm_iv breakeven_pct"] = df["atm_iv"] * df["breakeven_pct"]
@@ -24,16 +26,16 @@ df["iv_garch_spread estimatedEPS"] = df["iv_garch_spread"] * df["estimatedEPS"]
 df["breakeven_pct estimatedEPS"] = df["breakeven_pct"] * df["estimatedEPS"]
 # MSE: 0.08365 | R²: 0.079 | Adjusted R²: -0.657
 features = [
-    #"e_garch_vol"
-    "garch_vol", 
-    #"iv_garch_spread",
-    "breakeven_pct", 
-    "estimatedEPS", 
-    #"atm_iv estimatedEPS",
+    # "e_garch_vol"
+    "garch_vol",
+    # "iv_garch_spread",
+    "breakeven_pct",
+    "estimatedEPS",
+    # "atm_iv estimatedEPS",
     # "call_vega",
     # "call_rho",
-    #"atm_iv"
-    #"estimatedEPS_pct_change"
+    # "atm_iv"
+    # "estimatedEPS_pct_change"
 ]
 # df[" "] = df["garch_vol"] * df["breakeven_pct"]
 # df[" "] = df["atm_iv"] * df["breakeven_pct"]
@@ -43,9 +45,9 @@ features = [
 # df["breakeven_pct estimatedEPS"] = df["breakeven_pct"] * df["estimatedEPS"]
 # features = [
 #     "e_garch_vol",
-#     # "garch_vol", 
-#     "breakeven_pct", 
-#     "estimatedEPS", 
+#     # "garch_vol",
+#     "breakeven_pct",
+#     "estimatedEPS",
 #     # "atm_iv estimatedEPS",
 #     # "iv_garch_spread",
 #     # "breakeven_pct estimatedEPS_pct_change",
@@ -82,12 +84,7 @@ tscv = TimeSeriesSplit(n_splits=5)
 # ElasticNetCV
 enet_model = make_pipeline(
     StandardScaler(),
-    ElasticNetCV(
-        l1_ratio=[0.1, 0.5, 0.9, 1],
-        alphas=np.logspace(-4, 1, 50),
-        cv=tscv,
-        max_iter=10000000
-    )
+    ElasticNetCV(l1_ratio=[0.1, 0.5, 0.9, 1], alphas=np.logspace(-4, 1, 50), cv=tscv, max_iter=10000000),
 )
 enet_model.fit(X_train, y_train)
 enet = enet_model.named_steps["elasticnetcv"]
@@ -115,7 +112,7 @@ print("\nElasticNet Feature Weights:\n", pd.Series(enet.coef_, index=X_train.col
 # ridge = ridge_model.named_steps["ridgecv"]
 # y_pred_ridge = ridge_model.predict(X_test)
 
-#Poly
+# Poly
 # ridge_model.fit(X_train_poly, y_train)
 # ridge = ridge_model.named_steps["ridgecv"]
 # y_pred_ridge = ridge_model.predict(X_test_poly)
@@ -145,7 +142,7 @@ print(enet_importance)
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
 
-enet_importance.plot(kind='barh', ax=axes[0], title="ElasticNet Importances", color='orange')
+enet_importance.plot(kind="barh", ax=axes[0], title="ElasticNet Importances", color="orange")
 # ridge_importance.plot(kind='barh', ax=axes[1], title="Ridge Importances", color='skyblue')
 
 for ax in axes:

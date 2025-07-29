@@ -10,6 +10,7 @@ BASE_URL = "https://www.alphavantage.co/query"
 TICKER = sys.argv[1].upper()
 OUT_DIR = "./data/option_chains"
 
+
 def get_safe_as_of(stock_data, earn_date, max_lookback=5):
     for i in range(1, max_lookback + 1):
         as_of_date = (pd.to_datetime(earn_date) - BDay(i)).normalize()
@@ -17,10 +18,11 @@ def get_safe_as_of(stock_data, earn_date, max_lookback=5):
             return as_of_date
     return None
 
+
 def get_atm_strike(df: pd.DataFrame, as_of_date: str) -> float:
     lookup_ts = pd.to_datetime(as_of_date).normalize()
     closest_date = df.index.asof(lookup_ts)
-    price = df.loc[closest_date]['Adj Close']
+    price = df.loc[closest_date]["Adj Close"]
     price = float(price.iloc[0])
     if price < 25:
         tick_size = 0.5
@@ -30,13 +32,14 @@ def get_atm_strike(df: pd.DataFrame, as_of_date: str) -> float:
         tick_size = 5.0
     return round(price / tick_size) * tick_size
 
+
 def load_earnings_csv():
     resp = requests.get(
         BASE_URL,
         params={
             "function": "EARNINGS",
-            "symbol":   TICKER,
-            "apikey":   ALPHA_VANTAGE_API_KEY,
+            "symbol": TICKER,
+            "apikey": ALPHA_VANTAGE_API_KEY,
         },
     )
     resp.raise_for_status()
@@ -48,14 +51,15 @@ def load_earnings_csv():
     out_path = os.path.join("./data/earnings", f"{TICKER}.csv")
     earnings.to_csv(out_path, index=False)
 
+
 def load_options_chain_csv(earnings, stock_data):
     all_filtered = []
-    for earn_date in earnings['reportedDate']:
+    for earn_date in earnings["reportedDate"]:
         as_of_date = get_safe_as_of(stock_data, earn_date)
         if as_of_date is None:
             print(f"[SKIP] Could not find valid as_of date before {earn_date.date()}")
             continue
-        as_of_str = as_of_date.strftime('%Y-%m-%d')
+        as_of_str = as_of_date.strftime("%Y-%m-%d")
         atm_strike = get_atm_strike(stock_data, as_of_str)
         params = {
             "function": "HISTORICAL_OPTIONS",
@@ -71,9 +75,9 @@ def load_options_chain_csv(earnings, stock_data):
             print(f"[SKIP] Empty option chain for {as_of_str}")
             continue
 
-        df["strike"]      = pd.to_numeric(df["strike"], errors="coerce")
-        df["expiration"]  = pd.to_datetime(df["expiration"]).dt.date
-        df["as_of"]        = pd.to_datetime(df["date"]).dt.date
+        df["strike"] = pd.to_numeric(df["strike"], errors="coerce")
+        df["expiration"] = pd.to_datetime(df["expiration"]).dt.date
+        df["as_of"] = pd.to_datetime(df["date"]).dt.date
 
         earliest_exp = df["expiration"].min()
         df_at_exp = df[df["expiration"] == earliest_exp].copy()
@@ -89,12 +93,13 @@ def load_options_chain_csv(earnings, stock_data):
     result.to_csv(out_path, index=False)
     print(f"Saved {len(result)} rows to {out_path}")
 
+
 load_earnings_csv()
 earnings_csv = os.path.join(".", "data", "earnings", f"{TICKER}.csv")
-earnings = pd.read_csv(earnings_csv,parse_dates=["reportedDate"])
+earnings = pd.read_csv(earnings_csv, parse_dates=["reportedDate"])
 
-stock_data = yf.download(TICKER, start='2008-01-01', auto_adjust=False, progress=False)
-stock_data = stock_data[['Open', 'High', 'Low', 'Adj Close', 'Volume']]
+stock_data = yf.download(TICKER, start="2008-01-01", auto_adjust=False, progress=False)
+stock_data = stock_data[["Open", "High", "Low", "Adj Close", "Volume"]]
 stock_data.dropna(inplace=True)
 stock_data.index = pd.to_datetime(stock_data.index)
 stock_data.index = stock_data.index.normalize()

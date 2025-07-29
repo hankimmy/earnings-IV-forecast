@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def generate_signal(iv_diff, threshold):
     if iv_diff > threshold:
         return 1  # Long straddle
@@ -13,29 +14,32 @@ def generate_signal(iv_diff, threshold):
     else:
         return 0  # No trade
 
+
 def load_data(ticker, feature_path, model_path):
     df = pd.read_csv(feature_path, parse_dates=["reportedDate", "as_of"])
     model, features = joblib.load(model_path)
     return df, model, features
 
+
 def apply_model(df, model, features, threshold):
     df = df.dropna(subset=features + ["atm_iv", "return", "straddle_cost"]).copy()
     X = df[features]
     df["predicted_vol"] = model.predict(X)
-    df["iv_diff"]      = df["predicted_vol"] - df["atm_iv"]
+    df["iv_diff"] = df["predicted_vol"] - df["atm_iv"]
     df["trade_signal"] = df["iv_diff"].apply(lambda x: generate_signal(x, threshold))
     df["pnl"] = df["return"] * df["straddle_cost"]
     df["pnl_when_signal"] = df["pnl"] * df["trade_signal"]
     df["return_when_signal"] = df["return"] * df["trade_signal"]
     return df
 
+
 def evaluate_performance(df, label):
-    num_trades   = (df["trade_signal"] != 0).sum()
-    total_pnl    = df["pnl_when_signal"].sum()
-    avg_pnl      = df.loc[df["trade_signal"] != 0, "pnl_when_signal"].mean()
-    win_rate     = (df["pnl_when_signal"] > 0).sum() / max(num_trades, 1)
-    longs        = (df["trade_signal"] == 1).sum()
-    shorts       = (df["trade_signal"] == -1).sum()
+    num_trades = (df["trade_signal"] != 0).sum()
+    total_pnl = df["pnl_when_signal"].sum()
+    avg_pnl = df.loc[df["trade_signal"] != 0, "pnl_when_signal"].mean()
+    win_rate = (df["pnl_when_signal"] > 0).sum() / max(num_trades, 1)
+    longs = (df["trade_signal"] == 1).sum()
+    shorts = (df["trade_signal"] == -1).sum()
 
     print(f"\n--- {label} signal performance ---")
     print(f"Trades:         {num_trades}")
@@ -45,11 +49,12 @@ def evaluate_performance(df, label):
     print(f"Avg PnL/trade:  ${avg_pnl:,.2f}")
     print(f"Win rate:       {win_rate:.2%}")
 
+
 def plot_vol_curves(df, ticker, label):
-    plt.figure(figsize=(12,6))
+    plt.figure(figsize=(12, 6))
     plt.plot(df["as_of"], df["predicted_vol"], label=f"{label} Predicted Vol", marker="o")
-    plt.plot(df["as_of"], df["realized_vol"],  label=f"{label} Realized Vol",  marker="s")
-    plt.plot(df["as_of"], df["atm_iv"],        label=f"{label} ATM IV",        marker="^")
+    plt.plot(df["as_of"], df["realized_vol"], label=f"{label} Realized Vol", marker="s")
+    plt.plot(df["as_of"], df["atm_iv"], label=f"{label} ATM IV", marker="^")
     plt.title(f"{ticker} Vol Comparison: {label}")
     plt.xlabel("Date")
     plt.ylabel("Volatility")
@@ -58,42 +63,37 @@ def plot_vol_curves(df, ticker, label):
     plt.tight_layout()
     plt.show()
 
-def backtest(
-    ticker,
-    threshold=0.3,
-    base_path="./data",
-    model_dir="./models",
-    save_output=True,
-    plot=True
-):
-    feat_path   = f"{base_path}/features/{ticker}.csv"
-    model_path  = f"{model_dir}/elasticnet_model_{ticker}.pkl"
-    out_path    = f"{base_path}/signals/{ticker}_signals_oos.csv"
+
+def backtest(ticker, threshold=0.3, base_path="./data", model_dir="./models", save_output=True, plot=True):
+    feat_path = f"{base_path}/features/{ticker}.csv"
+    model_path = f"{model_dir}/elasticnet_model_{ticker}.pkl"
+    out_path = f"{base_path}/signals/{ticker}_signals_oos.csv"
 
     df, model, features = load_data(ticker, feat_path, model_path)
 
     train = df[df["reportedDate"].dt.year <= 2022]
-    test  = df[df["reportedDate"].dt.year > 2022]
+    test = df[df["reportedDate"].dt.year > 2022]
     print(f"Data split: {len(train)} in-sample rows, {len(test)} out-of-sample rows")
 
     train_sig = apply_model(train, model, features, threshold)
-    test_sig  = apply_model(test,  model, features, threshold)
+    test_sig = apply_model(test, model, features, threshold)
 
     evaluate_performance(train_sig, "In-sample")
-    evaluate_performance(test_sig,  "Out-of-sample")
+    evaluate_performance(test_sig, "Out-of-sample")
 
     if plot:
-        plot_vol_curves(test_sig,  ticker, "OOS")
+        plot_vol_curves(test_sig, ticker, "OOS")
 
     if save_output:
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         test_sig.to_csv(out_path, index=False)
         print(f"\nOut-of-sample signals saved to: {out_path}")
 
+
 def backtest_all(
-    feature_dir     = "./data/features",
-    model_dir       = "./models",
-    threshold       = 0.5,
+    feature_dir="./data/features",
+    model_dir="./models",
+    threshold=0.5,
 ):
     oos_sigs = []
     for fname in os.listdir(feature_dir):
@@ -111,7 +111,7 @@ def backtest_all(
 
         sig = apply_model(test, model, features, threshold)
         sig["ticker"] = ticker
-        oos_sigs.append(sig[["as_of","ticker","pnl_when_signal"]])
+        oos_sigs.append(sig[["as_of", "ticker", "pnl_when_signal"]])
 
     if not oos_sigs:
         print("No OOS signals generated.")
@@ -151,23 +151,8 @@ def backtest_all(
     print(f"  Total PnL:         ${total_pnl:,.2f}")
     print(f"  Annualized Sharpe: {sharpe:.2f}")
     print(f"  Max drawdown (%):  {abs(max_dd_pct):.2f}%")
-    # port["Pnl"] = port.sum(axis=1)
 
-    # daily = port["Pnl"]
-    # ann_factor = np.sqrt(252)
-    # sharpe = daily.mean() / daily.std() * ann_factor
-
-    # cum_pnl = daily.cumsum()
-    # running_max = cum_pnl.cummax()
-    # drawdown = cum_pnl - running_max
-
-    # print("\n=== Portfolio out-of-sample performance ===")
-    # print(f"  Total days traded: {len(daily)}")
-    # print(f"  Annualized Sharpe: {sharpe:.2f}")
-
-
-    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(10,8), sharex=True,
-                                   gridspec_kw={"height_ratios":[3,1]})
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
     ax1.plot(cum_pnl.index, cum_pnl.values, label="Cumulative PnL")
     ax1.set_ylabel("Cum. PnL ($)")
     ax1.legend(loc="upper left")
@@ -180,6 +165,7 @@ def backtest_all(
 
     plt.tight_layout()
     plt.show()
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1].upper() == "ALL":
